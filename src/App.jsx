@@ -83,6 +83,7 @@ const INITIAL_TRUCKS = [
     regNumber: 'MH 14 HG 9921',
     operator: 'Patil Freight Carriers',
     vehicleType: '32ft Container',
+    bodyType: 'Closed Container',
     location: 'Pune',
     destination: 'Nagpur',
     capacity: '18 Tons',
@@ -95,6 +96,7 @@ const INITIAL_TRUCKS = [
     regNumber: 'MH 04 ER 4410',
     operator: 'Swaraj Logistics Thane',
     vehicleType: '14ft Eicher',
+    bodyType: 'Closed Container',
     location: 'Thane',
     destination: 'Nashik',
     capacity: '6 Tons',
@@ -107,6 +109,7 @@ const INITIAL_TRUCKS = [
     regNumber: 'MH 15 AB 7731',
     operator: 'Nashik Roadlines',
     vehicleType: '10-Wheeler Open Heavy',
+    bodyType: 'Open Body',
     location: 'Nashik',
     destination: 'Mumbai',
     capacity: '16 Tons',
@@ -119,6 +122,7 @@ const INITIAL_TRUCKS = [
     regNumber: 'MH 31 CB 1120',
     operator: 'Vidarbha Heavy Haulers',
     vehicleType: 'Trailer Multi-Axle',
+    bodyType: 'Trailer',
     location: 'Nagpur',
     destination: 'Pune',
     capacity: '20 Tons',
@@ -131,6 +135,7 @@ const INITIAL_TRUCKS = [
     regNumber: 'MH 09 DX 5543',
     operator: 'Kolhapur Express Service',
     vehicleType: 'Tata Ace',
+    bodyType: 'Open Body',
     location: 'Kolhapur',
     destination: 'Pune',
     capacity: '1.5 Tons',
@@ -141,8 +146,26 @@ const INITIAL_TRUCKS = [
 ]
 
 function App() {
-  // Navigation state: 'landing' | 'truck-owner' | 'goods-owner'
-  const [currentView, setCurrentView] = useState('landing')
+  // Demo Auth Session State: null if unauthenticated, or user object
+  const [currentUser, setCurrentUser] = useState(null)
+  const [authMode, setAuthMode] = useState('login') // 'login' | 'signup'
+
+  // Navigation State: 'login' | 'truck-owner' | 'goods-owner'
+  const [currentView, setCurrentView] = useState('login')
+
+  // Sub-navigation tabs (Sidebar active screen)
+  // Truck Owner: 'find-shipments' | 'my-trucks' | 'add-truck' | 'my-bids' | 'incoming-requests' | 'active-rides' | 'rides-done'
+  const [truckOwnerTab, setTruckOwnerTab] = useState('find-shipments')
+
+  // Goods Owner: 'find-trucks' | 'post-shipment' | 'my-shipments' | 'requests-sent' | 'bids-received' | 'active-rides' | 'ride-history'
+  const [goodsOwnerTab, setGoodsOwnerTab] = useState('find-trucks')
+
+  // Sidebar collapsible state
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+
+  // Submitting flags to prevent duplicate form submissions
+  const [isSubmittingTruck, setIsSubmittingTruck] = useState(false)
+  const [isSubmittingLoad, setIsSubmittingLoad] = useState(false)
 
   // Marketplace lists state
   const [loads, setLoads] = useState(INITIAL_LOADS)
@@ -161,27 +184,41 @@ function App() {
   const [filterVehicle, setFilterVehicle] = useState('All')
 
   // Modal States
-  // 1. Bid Modal state for Truck Owner bidding on a load
-  const [biddingLoad, setBiddingLoad] = useState(null) // Load object or null
+  const [biddingLoad, setBiddingLoad] = useState(null)
   const [bidAmount, setBidAmount] = useState('')
   const [bidNotes, setBidNotes] = useState('')
 
-  // 2. Booking Modal state for Goods Owner booking a truck
-  const [bookingTruckModal, setBookingTruckModal] = useState(null) // Truck object or null
+  const [bookingTruckModal, setBookingTruckModal] = useState(null)
   const [bookingNotes, setBookingNotes] = useState('')
 
-  // Form States
-  // 1. Truck Owner Listing Form
+  // Login & Signup Form States
+  const [loginForm, setLoginForm] = useState({
+    email: '',
+    password: ''
+  })
+
+  const [signupForm, setSignupForm] = useState({
+    fullName: '',
+    email: '',
+    password: '',
+    confirmPassword: '',
+    phone: '',
+    company: '',
+    role: 'truck-owner' // 'truck-owner' | 'goods-owner'
+  })
+
+  // Truck Owner Listing Form (Standalone Add Truck screen)
   const [truckForm, setTruckForm] = useState({
     regNumber: '',
     vehicleType: '14ft Eicher',
-    location: 'Mumbai',
-    destination: 'Pune',
     capacity: '',
-    rate: ''
+    bodyType: 'Closed Container',
+    location: 'Mumbai',
+    availability: 'Available',
+    rate: '15000'
   })
 
-  // 2. Goods Owner Post Load Form
+  // Goods Owner Post Load Form (Standalone Post Shipment screen)
   const [loadForm, setLoadForm] = useState({
     title: '',
     pickup: 'Mumbai',
@@ -192,7 +229,7 @@ function App() {
     shipper: 'My Enterprise'
   })
 
-  // Toast Trigger Helper
+  // Toast Helper
   const triggerToast = (message, type = 'success') => {
     setToast({ message, type })
     setTimeout(() => {
@@ -207,78 +244,184 @@ function App() {
     setFilterVehicle('All')
   }
 
-  // 1. Validate & Add Truck
-  const handleAddTruck = (e) => {
+  // DEMO AUTH: Login Handler
+  const handleDemoLogin = (e) => {
     e.preventDefault()
-    const trimmedReg = truckForm.regNumber.trim().toUpperCase()
-    const capacityNum = parseFloat(truckForm.capacity)
-    const rateNum = parseFloat(truckForm.rate)
+    const email = loginForm.email.trim()
+    const password = loginForm.password
 
-    // Form Validations
-    if (!trimmedReg || trimmedReg.length < 5) {
-      triggerToast('⚠️ Validation Error: Enter a valid Vehicle Number (e.g. MH 12 AB 1234).', 'error')
+    if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+      triggerToast('⚠️ Validation Error: Please enter a valid email address.', 'error')
       return
     }
-    if (truckForm.location === truckForm.destination) {
-      triggerToast('⚠️ Validation Error: Current Location and Destination City cannot be the same.', 'error')
+    if (!password || password.length < 6) {
+      triggerToast('⚠️ Validation Error: Password must be at least 6 characters.', 'error')
+      return
+    }
+
+    // Determine demo role (e.g. if email contains 'goods' or user selected demo profile)
+    const assignedRole = email.toLowerCase().includes('goods') ? 'goods-owner' : 'truck-owner'
+    const namePart = email.split('@')[0]
+    const formattedName = namePart.charAt(0).toUpperCase() + namePart.slice(1)
+
+    const userObj = {
+      name: formattedName,
+      email: email,
+      role: assignedRole
+    }
+
+    setCurrentUser(userObj)
+    setCurrentView(assignedRole)
+    if (assignedRole === 'truck-owner') {
+      setTruckOwnerTab('find-shipments')
+    } else {
+      setGoodsOwnerTab('find-trucks')
+    }
+
+    triggerToast(`✅ Welcome back, ${userObj.name}! Logged in as ${assignedRole === 'truck-owner' ? 'Truck Owner' : 'Goods Owner'} (Demo Mode).`, 'success')
+  }
+
+  // DEMO AUTH: Signup Handler
+  const handleDemoSignup = (e) => {
+    e.preventDefault()
+    const fullName = signupForm.fullName.trim()
+    const email = signupForm.email.trim()
+    const password = signupForm.password
+    const confirmPassword = signupForm.confirmPassword
+    const selectedRole = signupForm.role
+
+    if (!fullName || fullName.length < 2) {
+      triggerToast('⚠️ Validation Error: Please enter your full name.', 'error')
+      return
+    }
+    if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+      triggerToast('⚠️ Validation Error: Please enter a valid email address.', 'error')
+      return
+    }
+    if (!password || password.length < 6) {
+      triggerToast('⚠️ Validation Error: Password must be at least 6 characters.', 'error')
+      return
+    }
+    if (password !== confirmPassword) {
+      triggerToast('⚠️ Validation Error: Passwords do not match.', 'error')
+      return
+    }
+
+    const userObj = {
+      name: fullName,
+      email: email,
+      role: selectedRole,
+      phone: signupForm.phone.trim(),
+      company: signupForm.company.trim()
+    }
+
+    setCurrentUser(userObj)
+    setCurrentView(selectedRole)
+    if (selectedRole === 'truck-owner') {
+      setTruckOwnerTab('find-shipments')
+    } else {
+      setGoodsOwnerTab('find-trucks')
+    }
+
+    triggerToast(`🎉 Demo account created! Welcome ${userObj.name} (${selectedRole === 'truck-owner' ? 'Truck Owner' : 'Goods Owner'}).`, 'success')
+  }
+
+  // DEMO AUTH: Logout Handler
+  const handleDemoLogout = () => {
+    setCurrentUser(null)
+    setCurrentView('login')
+    setAuthMode('login')
+    setLoginForm({ email: '', password: '' })
+    setSignupForm({
+      fullName: '',
+      email: '',
+      password: '',
+      confirmPassword: '',
+      phone: '',
+      company: '',
+      role: 'truck-owner'
+    })
+    triggerToast('ℹ️ Logged out of demo session.', 'success')
+  }
+
+  // PART 3: Validate & Add Truck (Separate Add Truck Screen)
+  const handleAddTruck = (e) => {
+    e.preventDefault()
+    if (isSubmittingTruck) return
+    setIsSubmittingTruck(true)
+
+    const trimmedReg = truckForm.regNumber.trim().toUpperCase()
+    const capacityNum = parseFloat(truckForm.capacity)
+    const rateNum = parseFloat(truckForm.rate) || 15000
+
+    if (!trimmedReg || trimmedReg.length < 5) {
+      triggerToast('⚠️ Validation Error: Enter a valid Registration Number string (e.g. MH 12 AB 1234).', 'error')
+      setIsSubmittingTruck(false)
       return
     }
     if (isNaN(capacityNum) || capacityNum <= 0) {
-      triggerToast('⚠️ Validation Error: Capacity must be a positive number of Tons.', 'error')
-      return
-    }
-    if (isNaN(rateNum) || rateNum <= 0) {
-      triggerToast('⚠️ Validation Error: Expected Price must be a valid positive amount in ₹.', 'error')
+      triggerToast('⚠️ Validation Error: Load Capacity must be a positive number of Tons.', 'error')
+      setIsSubmittingTruck(false)
       return
     }
 
     const newTruck = {
       id: `TRK-${Math.floor(200 + Math.random() * 800)}`,
-      regNumber: trimmedReg,
-      operator: 'My Truck Fleet',
+      regNumber: trimmedReg, // String preserved
+      operator: currentUser ? `${currentUser.name}'s Fleet` : 'My Fleet',
       vehicleType: truckForm.vehicleType,
+      bodyType: truckForm.bodyType,
       location: truckForm.location,
-      destination: truckForm.destination,
+      destination: 'Flexible Route',
       capacity: `${capacityNum} Tons`,
       rate: rateNum,
       rating: '5.0',
-      status: 'Available'
+      status: truckForm.availability
     }
 
     setTrucks([newTruck, ...trucks])
     setTruckForm({
       regNumber: '',
       vehicleType: '14ft Eicher',
-      location: 'Mumbai',
-      destination: 'Pune',
       capacity: '',
-      rate: ''
+      bodyType: 'Closed Container',
+      location: 'Mumbai',
+      availability: 'Available',
+      rate: '15000'
     })
-    triggerToast(`✅ Truck ${newTruck.regNumber} (${newTruck.vehicleType}) added successfully!`, 'success')
+    setIsSubmittingTruck(false)
+    triggerToast(`✅ Truck ${newTruck.regNumber} (${newTruck.capacity}) added to your fleet!`, 'success')
+    setTruckOwnerTab('my-trucks') // Switch to My Trucks screen to see addition
   }
 
-  // 2. Validate & Post Load Requirement
+  // PART 4: Validate & Post Load Requirement (Separate Post Shipment Screen)
   const handlePostLoad = (e) => {
     e.preventDefault()
+    if (isSubmittingLoad) return
+    setIsSubmittingLoad(true)
+
     const trimmedTitle = loadForm.title.trim()
     const weightNum = parseFloat(loadForm.weight)
     const priceNum = parseFloat(loadForm.price)
 
-    // Form Validations
     if (!trimmedTitle || trimmedTitle.length < 3) {
-      triggerToast('⚠️ Validation Error: Please enter a clear cargo description (at least 3 characters).', 'error')
+      triggerToast('⚠️ Validation Error: Enter a clear cargo description (at least 3 characters).', 'error')
+      setIsSubmittingLoad(false)
       return
     }
     if (loadForm.pickup === loadForm.destination) {
       triggerToast('⚠️ Validation Error: Pickup City and Destination City cannot be the same.', 'error')
+      setIsSubmittingLoad(false)
       return
     }
     if (isNaN(weightNum) || weightNum <= 0) {
-      triggerToast('⚠️ Validation Error: Weight must be a positive number of Tons.', 'error')
+      triggerToast('⚠️ Validation Error: Cargo Weight must be a positive number of Tons.', 'error')
+      setIsSubmittingLoad(false)
       return
     }
     if (isNaN(priceNum) || priceNum <= 0) {
       triggerToast('⚠️ Validation Error: Offered Price must be a positive amount in ₹.', 'error')
+      setIsSubmittingLoad(false)
       return
     }
 
@@ -290,7 +433,7 @@ function App() {
       vehicleType: loadForm.vehicleType,
       weight: `${weightNum} Tons`,
       price: priceNum,
-      shipper: loadForm.shipper.trim() || 'My Enterprise',
+      shipper: currentUser ? currentUser.company || currentUser.name : loadForm.shipper,
       status: 'Open',
       date: 'Today'
     }
@@ -305,17 +448,18 @@ function App() {
       price: '',
       shipper: 'My Enterprise'
     })
-    triggerToast(`✅ Cargo requirement "${newLoad.title}" posted successfully!`, 'success')
+    setIsSubmittingLoad(false)
+    triggerToast(`✅ Cargo shipment requirement "${newLoad.title}" posted successfully!`, 'success')
+    setGoodsOwnerTab('my-shipments') // Switch to My Shipments screen to see addition
   }
 
-  // 3. Open Bid Modal for Load
+  // Bidding & Booking Modal Actions
   const handleOpenBidModal = (load) => {
     setBiddingLoad(load)
     setBidAmount(load.price)
     setBidNotes('')
   }
 
-  // Submit Bid for Load
   const handleConfirmBid = (e) => {
     e.preventDefault()
     const amountNum = parseFloat(bidAmount)
@@ -341,13 +485,11 @@ function App() {
     triggerToast(`🎉 Bid of ₹${amountNum.toLocaleString('en-IN')} submitted for ${submittedId}! Shipper notified.`, 'success')
   }
 
-  // 4. Open Booking Confirmation Modal for Truck
   const handleOpenBookingModal = (truck) => {
     setBookingTruckModal(truck)
     setBookingNotes('')
   }
 
-  // Confirm Truck Booking Request
   const handleConfirmBooking = (e) => {
     e.preventDefault()
     setTrucks(
@@ -364,7 +506,7 @@ function App() {
     triggerToast(`🎉 Booking request sent to ${operator} (${truckReg})!`, 'success')
   }
 
-  // 5. Filtered Lists Logic
+  // Filtered Lists Logic
   const filteredLoads = loads.filter((l) => {
     const matchPickup = l.pickup.toLowerCase().includes(searchPickup.toLowerCase().trim())
     const matchDest = l.destination.toLowerCase().includes(searchDestination.toLowerCase().trim())
@@ -379,6 +521,9 @@ function App() {
     return matchLocation && matchDest && matchVehicle
   })
 
+  const myBidsList = loads.filter((l) => l.myBid || l.status === 'Bid Submitted')
+  const requestsSentList = trucks.filter((t) => t.status === 'Request Pending')
+
   const hasActiveFilters = searchPickup !== '' || searchDestination !== '' || filterVehicle !== 'All'
 
   return (
@@ -391,318 +536,1057 @@ function App() {
         </div>
       )}
 
-      {/* Header & Main Navigation */}
+      {/* Header Navigation */}
       <header className="header">
         <div className="container header-container">
-          <div className="logo" onClick={() => setCurrentView('landing')} style={{ cursor: 'pointer' }} title="GoodShip Home">
+          <div className="logo" onClick={() => currentUser ? null : setCurrentView('login')} style={{ cursor: currentUser ? 'default' : 'pointer' }} title="GoodShip">
             <span className="logo-icon">🚛</span>
             <span className="logo-text">GoodShip<span className="dot">.</span></span>
           </div>
 
-          <nav className="nav-links">
-            <button
-              className={`nav-btn ${currentView === 'landing' ? 'active' : ''}`}
-              onClick={() => setCurrentView('landing')}
-            >
-              Home
-            </button>
-            <button
-              className={`nav-btn ${currentView === 'truck-owner' ? 'active' : ''}`}
-              onClick={() => setCurrentView('truck-owner')}
-            >
-              Truck Owner Portal
-            </button>
-            <button
-              className={`nav-btn ${currentView === 'goods-owner' ? 'active' : ''}`}
-              onClick={() => setCurrentView('goods-owner')}
-            >
-              Goods Owner Portal
-            </button>
-          </nav>
+          {/* PART 2: Remove Top Nav buttons for logged-in users; Show Header User Profile */}
+          {currentUser ? (
+            <div className="header-user-profile">
+              <div className="user-info-box">
+                <div className="user-avatar">{currentUser.name.charAt(0).toUpperCase()}</div>
+                <div>
+                  <span className="user-name-text">{currentUser.name}</span>
+                </div>
+                <span className={`user-role-badge ${currentUser.role === 'truck-owner' ? 'green' : 'navy'}`}>
+                  {currentUser.role === 'truck-owner' ? '🚛 Truck Owner' : '📦 Goods Owner'}
+                </span>
+              </div>
+              <button className="logout-btn" onClick={handleDemoLogout} title="Log out of demo session">
+                Logout
+              </button>
+            </div>
+          ) : (
+            <div className="nav-links">
+              <button
+                className={`nav-btn ${authMode === 'login' ? 'active' : ''}`}
+                onClick={() => setAuthMode('login')}
+              >
+                Sign In
+              </button>
+              <button
+                className={`nav-btn ${authMode === 'signup' ? 'active' : ''}`}
+                onClick={() => setAuthMode('signup')}
+              >
+                Sign Up
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
-      {/* Main View Container */}
+      {/* Main Content Area */}
       <main>
         {/* ===================================== */}
-        {/* VIEW 1: LANDING PAGE                  */}
+        {/* PART 1: LOGIN & SIGNUP SCREENS        */}
         {/* ===================================== */}
-        {currentView === 'landing' && (
-          <div className="landing-view">
-            {/* Hero Section */}
-            <section className="hero">
-              <div className="container hero-container">
-                <div className="india-badge">🇮🇳 India's Smart Trucking Network</div>
-                <h1 className="hero-headline">The smarter way to move goods.</h1>
-                <p className="hero-description">
-                  GoodShip connects truck owners directly with businesses needing freight transport across Maharashtra and India. Eliminate empty return trips, get instant loads, and book verified trucks.
-                </p>
-
-                {/* Role Selection Options */}
-                <div className="role-cards">
-                  <div className="role-card primary">
-                    <div className="role-icon">🚛</div>
-                    <h3>Truck Owner</h3>
-                    <p>Find profitable loads for your trucks & reduce empty return trips.</p>
-                    <button
-                      className="btn btn-primary"
-                      onClick={() => setCurrentView('truck-owner')}
-                    >
-                      Enter Truck Owner Portal →
-                    </button>
-                  </div>
-
-                  <div className="role-card secondary">
-                    <div className="role-icon">📦</div>
-                    <h3>Goods Owner</h3>
-                    <p>Post freight requirements & connect with verified truck operators.</p>
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() => setCurrentView('goods-owner')}
-                    >
-                      Enter Goods Owner Portal →
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            {/* Benefits Section */}
-            <section className="benefits">
-              <div className="container">
-                <div className="section-header">
-                  <h2 className="section-title">Built for Smart Logistics</h2>
-                  <p className="section-subtitle">Empowering carriers and shippers across major Indian commercial hubs</p>
+        {!currentUser && (
+          <div className="auth-wrapper">
+            {authMode === 'login' ? (
+              <div className="auth-card">
+                <div className="auth-header">
+                  <h1 className="auth-brand">GoodShip</h1>
+                  <p className="auth-tagline">The smarter way to move goods.</p>
+                  <span className="demo-notice-tag">DEMO MODE • Client-side Validation</span>
                 </div>
 
-                <div className="benefits-grid">
-                  <div className="benefit-card">
-                    <div className="icon-wrapper">📦</div>
-                    <h3>Find Loads</h3>
-                    <p>
-                      Access verified, high-paying cargo loads matching your truck type and preferred routes instantly.
-                    </p>
-                  </div>
-
-                  <div className="benefit-card">
-                    <div className="icon-wrapper">🚚</div>
-                    <h3>Find Trucks</h3>
-                    <p>
-                      Discover available open body, container, and heavy trailer trucks ready for pickup near your warehouse.
-                    </p>
-                  </div>
-
-                  <div className="benefit-card">
-                    <div className="icon-wrapper">🔄</div>
-                    <h3>Reduce Empty Trips</h3>
-                    <p>
-                      Eliminate deadhead miles on return corridors between Mumbai, Pune, Nashik, Nagpur, and beyond.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            {/* Popular Corridors */}
-            <section className="corridors-section">
-              <div className="container">
-                <h3 className="corridors-title">Key Active Corridors in Maharashtra</h3>
-                <div className="corridor-tags">
-                  <span className="tag">📍 Mumbai ↔ Pune</span>
-                  <span className="tag">📍 Pune ↔ Nagpur</span>
-                  <span className="tag">📍 Nashik ↔ Mumbai</span>
-                  <span className="tag">📍 Thane ↔ Kolhapur</span>
-                  <span className="tag">📍 Nagpur ↔ Nashik</span>
-                </div>
-              </div>
-            </section>
-          </div>
-        )}
-
-        {/* ===================================== */}
-        {/* VIEW 2: TRUCK OWNER DASHBOARD         */}
-        {/* ===================================== */}
-        {currentView === 'truck-owner' && (
-          <div className="dashboard-view container">
-            <div className="dashboard-header">
-              <div>
-                <h1 className="dash-title">Truck Owner Portal</h1>
-                <p className="dash-sub">List your trucks, search matching loads, and submit bids.</p>
-              </div>
-              <span className="role-pill green">🚛 Truck Owner Mode</span>
-            </div>
-
-            {/* Summary Cards */}
-            <div className="stats-grid">
-              <div className="stat-card">
-                <span className="stat-icon">🚛</span>
-                <div>
-                  <div className="stat-value">{trucks.length}</div>
-                  <div className="stat-label">Available Trucks Listed</div>
-                </div>
-              </div>
-
-              <div className="stat-card">
-                <span className="stat-icon">📦</span>
-                <div>
-                  <div className="stat-value">{loads.length}</div>
-                  <div className="stat-label">Matching Loads Available</div>
-                </div>
-              </div>
-
-              <div className="stat-card">
-                <span className="stat-icon">🔔</span>
-                <div>
-                  <div className="stat-value">{truckOwnerBookings}</div>
-                  <div className="stat-label">Bids / Requests Placed</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Form & Main Content Grid */}
-            <div className="dashboard-grid">
-              {/* Left Column: Form to List a Truck */}
-              <div className="card form-card">
-                <h2 className="card-title">List an Available Truck</h2>
-                <form onSubmit={handleAddTruck}>
+                <form onSubmit={handleDemoLogin}>
                   <div className="form-group">
-                    <label>Vehicle Number *</label>
+                    <label>Email Address *</label>
                     <input
-                      type="text"
-                      placeholder="e.g. MH 12 AB 1234"
-                      value={truckForm.regNumber}
-                      onChange={(e) => setTruckForm({ ...truckForm, regNumber: e.target.value })}
+                      type="email"
+                      placeholder="e.g. truckowner@goodship.in"
+                      value={loginForm.email}
+                      onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
                       required
                     />
                   </div>
 
                   <div className="form-group">
-                    <label>Vehicle Type *</label>
-                    <select
-                      value={truckForm.vehicleType}
-                      onChange={(e) => setTruckForm({ ...truckForm, vehicleType: e.target.value })}
-                    >
-                      <option value="14ft Eicher">14ft Eicher (Medium Container)</option>
-                      <option value="32ft Container">32ft Container (Multi-Axle)</option>
-                      <option value="10-Wheeler Open Heavy">10-Wheeler Open Heavy</option>
-                      <option value="Tata Ace">Tata Ace (1.5T Small LCV)</option>
-                      <option value="Trailer Multi-Axle">Trailer Heavy Multi-Axle</option>
-                      <option value="20ft Container">20ft Container</option>
-                    </select>
+                    <label>Password *</label>
+                    <input
+                      type="password"
+                      placeholder="••••••••"
+                      value={loginForm.password}
+                      onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                      required
+                    />
                   </div>
 
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>Current Location *</label>
-                      <select
-                        value={truckForm.location}
-                        onChange={(e) => setTruckForm({ ...truckForm, location: e.target.value })}
-                      >
-                        <option value="Mumbai">Mumbai</option>
-                        <option value="Pune">Pune</option>
-                        <option value="Nashik">Nashik</option>
-                        <option value="Nagpur">Nagpur</option>
-                        <option value="Thane">Thane</option>
-                        <option value="Kolhapur">Kolhapur</option>
-                      </select>
-                    </div>
-
-                    <div className="form-group">
-                      <label>Preferred Destination *</label>
-                      <select
-                        value={truckForm.destination}
-                        onChange={(e) => setTruckForm({ ...truckForm, destination: e.target.value })}
-                      >
-                        <option value="Pune">Pune</option>
-                        <option value="Mumbai">Mumbai</option>
-                        <option value="Nagpur">Nagpur</option>
-                        <option value="Nashik">Nashik</option>
-                        <option value="Kolhapur">Kolhapur</option>
-                        <option value="Thane">Thane</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>Capacity (Tons) *</label>
-                      <input
-                        type="number"
-                        step="0.5"
-                        placeholder="e.g. 10"
-                        value={truckForm.capacity}
-                        onChange={(e) => setTruckForm({ ...truckForm, capacity: e.target.value })}
-                        required
-                      />
-                    </div>
-
-                    <div className="form-group">
-                      <label>Expected Price (₹) *</label>
-                      <input
-                        type="number"
-                        placeholder="e.g. 25000"
-                        value={truckForm.rate}
-                        onChange={(e) => setTruckForm({ ...truckForm, rate: e.target.value })}
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <button type="submit" className="btn btn-primary full-width">
-                    + Add Truck to Fleet
+                  <button type="submit" className="btn btn-primary full-width" style={{ marginTop: '12px' }}>
+                    Sign In to Dashboard
                   </button>
                 </form>
-              </div>
 
-              {/* Right Column: Search & Available Loads List */}
-              <div className="list-container">
-                <div className="card filter-card">
-                  <div className="filter-header">
-                    <h3 className="filter-title">Find Loads for Your Trucks</h3>
-                    <span className="filter-count">
-                      Showing {filteredLoads.length} of {loads.length} loads
-                      {hasActiveFilters && (
-                        <button className="clear-btn" onClick={handleClearFilters}>Clear Filters</button>
-                      )}
-                    </span>
+                <div className="auth-footer">
+                  Don't have a demo account?
+                  <button className="auth-link" onClick={() => setAuthMode('signup')}>
+                    Sign Up
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="auth-card">
+                <div className="auth-header">
+                  <h1 className="auth-brand">Create GoodShip Account</h1>
+                  <p className="auth-tagline">Select your role and start moving goods efficiently.</p>
+                  <span className="demo-notice-tag">DEMO MODE • Select Your Role</span>
+                </div>
+
+                <form onSubmit={handleDemoSignup}>
+                  <div className="form-group">
+                    <label>Full Name *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Chirag Bhandari"
+                      value={signupForm.fullName}
+                      onChange={(e) => setSignupForm({ ...signupForm, fullName: e.target.value })}
+                      required
+                    />
                   </div>
 
-                  <div className="filter-row">
+                  <div className="form-group">
+                    <label>Email Address *</label>
                     <input
-                      type="text"
-                      placeholder="Filter Pickup City (e.g. Pune)"
-                      value={searchPickup}
-                      onChange={(e) => setSearchPickup(e.target.value)}
+                      type="email"
+                      placeholder="e.g. chirag@logistics.in"
+                      value={signupForm.email}
+                      onChange={(e) => setSignupForm({ ...signupForm, email: e.target.value })}
+                      required
                     />
-                    <input
-                      type="text"
-                      placeholder="Filter Destination City"
-                      value={searchDestination}
-                      onChange={(e) => setSearchDestination(e.target.value)}
-                    />
-                    <select
-                      value={filterVehicle}
-                      onChange={(e) => setFilterVehicle(e.target.value)}
-                    >
-                      <option value="All">All Vehicle Types</option>
-                      <option value="14ft Eicher">14ft Eicher</option>
-                      <option value="32ft Container">32ft Container</option>
-                      <option value="10-Wheeler Open Heavy">10-Wheeler Open</option>
-                      <option value="Tata Ace">Tata Ace</option>
-                      <option value="Trailer Multi-Axle">Trailer Multi-Axle</option>
-                      <option value="20ft Container">20ft Container</option>
-                    </select>
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Password *</label>
+                      <input
+                        type="password"
+                        placeholder="••••••••"
+                        value={signupForm.password}
+                        onChange={(e) => setSignupForm({ ...signupForm, password: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Confirm Password *</label>
+                      <input
+                        type="password"
+                        placeholder="••••••••"
+                        value={signupForm.confirmPassword}
+                        onChange={(e) => setSignupForm({ ...signupForm, confirmPassword: e.target.value })}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Phone (Optional)</label>
+                      <input
+                        type="tel"
+                        placeholder="+91 98765 43210"
+                        value={signupForm.phone}
+                        onChange={(e) => setSignupForm({ ...signupForm, phone: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Company (Optional)</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Sahyadri Logistics"
+                        value={signupForm.company}
+                        onChange={(e) => setSignupForm({ ...signupForm, company: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Select Account Role *</label>
+                    <div className="role-selector-grid">
+                      <button
+                        type="button"
+                        className={`role-option-btn ${signupForm.role === 'truck-owner' ? 'selected' : ''}`}
+                        onClick={() => setSignupForm({ ...signupForm, role: 'truck-owner' })}
+                      >
+                        <span className="icon">🚛</span>
+                        <span className="title">Truck Owner</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        className={`role-option-btn ${signupForm.role === 'goods-owner' ? 'selected' : ''}`}
+                        onClick={() => setSignupForm({ ...signupForm, role: 'goods-owner' })}
+                      >
+                        <span className="icon">📦</span>
+                        <span className="title">Goods Owner</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <button type="submit" className="btn btn-secondary full-width" style={{ marginTop: '16px' }}>
+                    Complete Sign Up & Open Dashboard
+                  </button>
+                </form>
+
+                <div className="auth-footer">
+                  Already have a demo account?
+                  <button className="auth-link" onClick={() => setAuthMode('login')}>
+                    Sign In
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ===================================== */}
+        {/* TRUCK OWNER PORTAL                    */}
+        {/* ===================================== */}
+        {currentUser && currentUser.role === 'truck-owner' && (
+          <div className="portal-layout">
+            {/* PART 3: Truck Owner Sidebar */}
+            <aside className={`sidebar ${isSidebarCollapsed ? 'collapsed' : ''}`}>
+              <div className="sidebar-toggle-bar">
+                <span className="sidebar-title">Truck Owner Menu</span>
+                <button
+                  className="sidebar-toggle-btn"
+                  onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                  title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+                >
+                  {isSidebarCollapsed ? '▶' : '◀'}
+                </button>
+              </div>
+
+              <nav className="sidebar-nav">
+                <button
+                  className={`sidebar-item ${truckOwnerTab === 'find-shipments' ? 'active' : ''}`}
+                  onClick={() => setTruckOwnerTab('find-shipments')}
+                  title="Find Shipments"
+                >
+                  <span className="icon">📦</span>
+                  <span className="label">Find Shipments</span>
+                </button>
+
+                <button
+                  className={`sidebar-item ${truckOwnerTab === 'my-trucks' ? 'active' : ''}`}
+                  onClick={() => setTruckOwnerTab('my-trucks')}
+                  title="My Trucks"
+                >
+                  <span className="icon">🚚</span>
+                  <span className="label">My Trucks ({trucks.length})</span>
+                </button>
+
+                <button
+                  className={`sidebar-item ${truckOwnerTab === 'add-truck' ? 'active' : ''}`}
+                  onClick={() => setTruckOwnerTab('add-truck')}
+                  title="Add Truck"
+                >
+                  <span className="icon">➕</span>
+                  <span className="label">Add Truck</span>
+                </button>
+
+                <button
+                  className={`sidebar-item ${truckOwnerTab === 'my-bids' ? 'active' : ''}`}
+                  onClick={() => setTruckOwnerTab('my-bids')}
+                  title="My Bids"
+                >
+                  <span className="icon">📑</span>
+                  <span className="label">My Bids ({myBidsList.length})</span>
+                </button>
+
+                <button
+                  className={`sidebar-item ${truckOwnerTab === 'incoming-requests' ? 'active' : ''}`}
+                  onClick={() => setTruckOwnerTab('incoming-requests')}
+                  title="Incoming Requests"
+                >
+                  <span className="icon">📥</span>
+                  <span className="label">Incoming Requests</span>
+                </button>
+
+                <button
+                  className={`sidebar-item ${truckOwnerTab === 'active-rides' ? 'active' : ''}`}
+                  onClick={() => setTruckOwnerTab('active-rides')}
+                  title="Active Rides"
+                >
+                  <span className="icon">🛣️</span>
+                  <span className="label">Active Rides</span>
+                </button>
+
+                <button
+                  className={`sidebar-item ${truckOwnerTab === 'rides-done' ? 'active' : ''}`}
+                  onClick={() => setTruckOwnerTab('rides-done')}
+                  title="Rides Done"
+                >
+                  <span className="icon">✅</span>
+                  <span className="label">Rides Done</span>
+                </button>
+              </nav>
+            </aside>
+
+            {/* Portal Canvas */}
+            <div className="portal-canvas">
+              <div className="dashboard-header">
+                <div>
+                  <h1 className="dash-title">
+                    {truckOwnerTab === 'find-shipments' && 'Find Available Shipments'}
+                    {truckOwnerTab === 'my-trucks' && 'My Registered Trucks'}
+                    {truckOwnerTab === 'add-truck' && 'Register & Add New Truck'}
+                    {truckOwnerTab === 'my-bids' && 'My Submitted Bids'}
+                    {truckOwnerTab === 'incoming-requests' && 'Incoming Booking Requests'}
+                    {truckOwnerTab === 'active-rides' && 'Active Rides'}
+                    {truckOwnerTab === 'rides-done' && 'Completed Rides History'}
+                  </h1>
+                  <p className="dash-sub">
+                    {truckOwnerTab === 'find-shipments' && 'Search cargo postings and submit freight bids.'}
+                    {truckOwnerTab === 'my-trucks' && 'Manage your registered fleet vehicles and routes.'}
+                    {truckOwnerTab === 'add-truck' && 'Add a new vehicle registration to your fleet.'}
+                    {truckOwnerTab === 'my-bids' && 'Review your active proposals submitted to shippers.'}
+                    {truckOwnerTab === 'incoming-requests' && 'Booking requests received from goods owners.'}
+                    {truckOwnerTab === 'active-rides' && 'In-transit shipments currently active.'}
+                    {truckOwnerTab === 'rides-done' && 'Past completed shipments and trip history.'}
+                  </p>
+                </div>
+                <span className="role-pill green">🚛 Truck Owner Mode</span>
+              </div>
+
+              {/* Summary Stats Header */}
+              <div className="stats-grid">
+                <div className="stat-card">
+                  <span className="stat-icon">🚛</span>
+                  <div>
+                    <div className="stat-value">{trucks.length}</div>
+                    <div className="stat-label">Available Trucks Listed</div>
                   </div>
                 </div>
 
-                {/* Available Loads List */}
-                <div className="items-list">
-                  {filteredLoads.length === 0 ? (
-                    <div className="empty-state">
-                      No loads match your current filter criteria. Try clearing search filters.
+                <div className="stat-card">
+                  <span className="stat-icon">📦</span>
+                  <div>
+                    <div className="stat-value">{loads.length}</div>
+                    <div className="stat-label">Matching Loads Available</div>
+                  </div>
+                </div>
+
+                <div className="stat-card">
+                  <span className="stat-icon">🔔</span>
+                  <div>
+                    <div className="stat-value">{myBidsList.length}</div>
+                    <div className="stat-label">My Active Bids</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* SCREEN 1: FIND SHIPMENTS (DEFAULT) */}
+              {truckOwnerTab === 'find-shipments' && (
+                <div>
+                  <div className="card filter-card">
+                    <div className="filter-header">
+                      <h3 className="filter-title">Search & Filter Marketplace Loads</h3>
+                      <span className="filter-count">
+                        Showing {filteredLoads.length} of {loads.length} loads
+                        {hasActiveFilters && (
+                          <button className="clear-btn" onClick={handleClearFilters}>Clear Filters</button>
+                        )}
+                      </span>
+                    </div>
+
+                    <div className="filter-row">
+                      <input
+                        type="text"
+                        placeholder="Filter Pickup City (e.g. Pune)"
+                        value={searchPickup}
+                        onChange={(e) => setSearchPickup(e.target.value)}
+                      />
+                      <input
+                        type="text"
+                        placeholder="Filter Destination City"
+                        value={searchDestination}
+                        onChange={(e) => setSearchDestination(e.target.value)}
+                      />
+                      <select
+                        value={filterVehicle}
+                        onChange={(e) => setFilterVehicle(e.target.value)}
+                      >
+                        <option value="All">All Vehicle Types</option>
+                        <option value="14ft Eicher">14ft Eicher</option>
+                        <option value="32ft Container">32ft Container</option>
+                        <option value="10-Wheeler Open Heavy">10-Wheeler Open</option>
+                        <option value="Tata Ace">Tata Ace</option>
+                        <option value="Trailer Multi-Axle">Trailer Multi-Axle</option>
+                        <option value="20ft Container">20ft Container</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="items-list">
+                    {filteredLoads.length === 0 ? (
+                      <div className="empty-state-card">
+                        <div className="empty-icon">🔍</div>
+                        <h3>No Matching Loads Found</h3>
+                        <p>No open shipments match your current search filters.</p>
+                        {hasActiveFilters && (
+                          <button className="btn btn-outline" onClick={handleClearFilters}>Clear Filters</button>
+                        )}
+                      </div>
+                    ) : (
+                      filteredLoads.map((load) => (
+                        <div className="card item-card" key={load.id}>
+                          <div className="item-header">
+                            <div>
+                              <span className="item-id">{load.id}</span>
+                              <h4 className="item-title">{load.title}</h4>
+                              <span className="shipper-name">Shipper: {load.shipper}</span>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <div className="item-price">₹{load.price.toLocaleString('en-IN')}</div>
+                              {load.myBid && (
+                                <span className="bid-badge">Your Bid: ₹{load.myBid.toLocaleString('en-IN')}</span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="item-details">
+                            <div className="detail-chip">
+                              <span className="chip-label">Route</span>
+                              <strong>{load.pickup} ➔ {load.destination}</strong>
+                            </div>
+                            <div className="detail-chip">
+                              <span className="chip-label">Vehicle</span>
+                              <span>{load.vehicleType}</span>
+                            </div>
+                            <div className="detail-chip">
+                              <span className="chip-label">Weight</span>
+                              <span>{load.weight}</span>
+                            </div>
+                          </div>
+
+                          <div className="item-footer">
+                            <span className={`status-tag ${load.status === 'Open' ? 'green' : 'blue'}`}>
+                              ● {load.status}
+                            </span>
+                            <button
+                              className="btn btn-sm btn-primary"
+                              onClick={() => handleOpenBidModal(load)}
+                              disabled={load.status !== 'Open'}
+                            >
+                              {load.status === 'Open' ? 'Accept & Bid Load' : 'Bid Submitted'}
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* SCREEN 2: MY TRUCKS (SEPARATED FROM FORM) */}
+              {truckOwnerTab === 'my-trucks' && (
+                <div>
+                  <div className="section-top-bar">
+                    <h2>Registered Vehicles ({trucks.length})</h2>
+                    <button className="btn btn-primary" onClick={() => setTruckOwnerTab('add-truck')}>
+                      + Add New Truck
+                    </button>
+                  </div>
+
+                  {trucks.length === 0 ? (
+                    <div className="empty-state-card">
+                      <div className="empty-icon">🚚</div>
+                      <h3>No Trucks Registered Yet</h3>
+                      <p>List your vehicles to match with shippers and receive booking requests.</p>
+                      <button className="btn btn-primary" onClick={() => setTruckOwnerTab('add-truck')}>
+                        List Your First Truck
+                      </button>
                     </div>
                   ) : (
-                    filteredLoads.map((load) => (
+                    <div className="items-list">
+                      {trucks.map((truck) => (
+                        <div className="card item-card" key={truck.id}>
+                          <div className="item-header">
+                            <div>
+                              <span className="item-id">{truck.regNumber}</span>
+                              <h4 className="item-title">{truck.operator}</h4>
+                            </div>
+                            <div className="item-price">₹{truck.rate.toLocaleString('en-IN')}</div>
+                          </div>
+
+                          <div className="item-details">
+                            <div className="detail-chip">
+                              <span className="chip-label">Current Route</span>
+                              <strong>{truck.location} ➔ {truck.destination}</strong>
+                            </div>
+                            <div className="detail-chip">
+                              <span className="chip-label">Vehicle Spec</span>
+                              <span>{truck.vehicleType}</span>
+                            </div>
+                            <div className="detail-chip">
+                              <span className="chip-label">Body Type</span>
+                              <span>{truck.bodyType || 'Closed Body'}</span>
+                            </div>
+                            <div className="detail-chip">
+                              <span className="chip-label">Load Capacity</span>
+                              <span>{truck.capacity}</span>
+                            </div>
+                          </div>
+
+                          <div className="item-footer">
+                            <span className={`status-tag ${truck.status === 'Available' ? 'green' : 'orange'}`}>
+                              ● {truck.status}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* SCREEN 3: ADD TRUCK (SEPARATE FORM SCREEN) */}
+              {truckOwnerTab === 'add-truck' && (
+                <div style={{ maxWidth: '640px', margin: '0 auto' }}>
+                  <div className="card form-card">
+                    <h2 className="card-title">Add Vehicle to Fleet</h2>
+                    <form onSubmit={handleAddTruck}>
+                      <div className="form-group">
+                        <label>Truck Registration Number *</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. MH 12 AB 1234"
+                          value={truckForm.regNumber}
+                          onChange={(e) => setTruckForm({ ...truckForm, regNumber: e.target.value })}
+                          required
+                        />
+                      </div>
+
+                      <div className="form-row">
+                        <div className="form-group">
+                          <label>Vehicle Type *</label>
+                          <select
+                            value={truckForm.vehicleType}
+                            onChange={(e) => setTruckForm({ ...truckForm, vehicleType: e.target.value })}
+                          >
+                            <option value="14ft Eicher">14ft Eicher (Medium Container)</option>
+                            <option value="32ft Container">32ft Container (Multi-Axle)</option>
+                            <option value="10-Wheeler Open Heavy">10-Wheeler Open Heavy</option>
+                            <option value="Tata Ace">Tata Ace (1.5T Small LCV)</option>
+                            <option value="Trailer Multi-Axle">Trailer Heavy Multi-Axle</option>
+                            <option value="20ft Container">20ft Container</option>
+                          </select>
+                        </div>
+
+                        <div className="form-group">
+                          <label>Truck Body Type *</label>
+                          <select
+                            value={truckForm.bodyType}
+                            onChange={(e) => setTruckForm({ ...truckForm, bodyType: e.target.value })}
+                          >
+                            <option value="Closed Container">Closed Container</option>
+                            <option value="Open Body">Open Body</option>
+                            <option value="Trailer">Trailer</option>
+                            <option value="Flatbed">Flatbed</option>
+                            <option value="Tarpaulined">Tarpaulined</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="form-row">
+                        <div className="form-group">
+                          <label>Load Capacity (Tons) *</label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            placeholder="e.g. 12"
+                            value={truckForm.capacity}
+                            onChange={(e) => setTruckForm({ ...truckForm, capacity: e.target.value })}
+                            required
+                          />
+                        </div>
+
+                        <div className="form-group">
+                          <label>Expected Price / Rate (₹) *</label>
+                          <input
+                            type="number"
+                            placeholder="e.g. 25000"
+                            value={truckForm.rate}
+                            onChange={(e) => setTruckForm({ ...truckForm, rate: e.target.value })}
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div className="form-row">
+                        <div className="form-group">
+                          <label>Current Location *</label>
+                          <select
+                            value={truckForm.location}
+                            onChange={(e) => setTruckForm({ ...truckForm, location: e.target.value })}
+                          >
+                            <option value="Mumbai">Mumbai</option>
+                            <option value="Pune">Pune</option>
+                            <option value="Nashik">Nashik</option>
+                            <option value="Nagpur">Nagpur</option>
+                            <option value="Thane">Thane</option>
+                            <option value="Kolhapur">Kolhapur</option>
+                          </select>
+                        </div>
+
+                        <div className="form-group">
+                          <label>Availability *</label>
+                          <select
+                            value={truckForm.availability}
+                            onChange={(e) => setTruckForm({ ...truckForm, availability: e.target.value })}
+                          >
+                            <option value="Available">Available</option>
+                            <option value="Unavailable">Unavailable</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="btn btn-primary full-width"
+                        disabled={isSubmittingTruck}
+                        style={{ marginTop: '12px' }}
+                      >
+                        {isSubmittingTruck ? 'Adding Truck...' : '+ Register & Add Truck'}
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              )}
+
+              {/* SCREEN 4: MY BIDS */}
+              {truckOwnerTab === 'my-bids' && (
+                <div>
+                  {myBidsList.length === 0 ? (
+                    <div className="empty-state-card">
+                      <div className="empty-icon">📑</div>
+                      <h3>No Active Bids Placed</h3>
+                      <p>You have not placed any bids on shipments yet. Go to Find Shipments to propose rates.</p>
+                      <button className="btn btn-primary" onClick={() => setTruckOwnerTab('find-shipments')}>
+                        Browse Find Shipments
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="items-list">
+                      {myBidsList.map((load) => (
+                        <div className="card item-card" key={load.id}>
+                          <div className="item-header">
+                            <div>
+                              <span className="item-id">{load.id}</span>
+                              <h4 className="item-title">{load.title}</h4>
+                              <span className="shipper-name">Shipper: {load.shipper}</span>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <div className="item-price">₹{load.price.toLocaleString('en-IN')}</div>
+                              <span className="bid-badge">Your Submitted Bid: ₹{load.myBid ? load.myBid.toLocaleString('en-IN') : load.price.toLocaleString('en-IN')}</span>
+                            </div>
+                          </div>
+
+                          <div className="item-details">
+                            <div className="detail-chip">
+                              <span className="chip-label">Route</span>
+                              <strong>{load.pickup} ➔ {load.destination}</strong>
+                            </div>
+                            <div className="detail-chip">
+                              <span className="chip-label">Vehicle</span>
+                              <span>{load.vehicleType}</span>
+                            </div>
+                          </div>
+
+                          <div className="item-footer">
+                            <span className="status-tag blue">● Bid Pending Shipper Review</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* SCREEN 5: INCOMING REQUESTS */}
+              {truckOwnerTab === 'incoming-requests' && (
+                <div className="empty-state-card">
+                  <div className="empty-icon">📥</div>
+                  <h3>No Incoming Requests Yet</h3>
+                  <p>When goods owners request your listed trucks, incoming booking requests will appear here.</p>
+                </div>
+              )}
+
+              {/* SCREEN 6: ACTIVE RIDES */}
+              {truckOwnerTab === 'active-rides' && (
+                <div className="empty-state-card">
+                  <div className="empty-icon">🛣️</div>
+                  <h3>No Active Rides In Transit</h3>
+                  <p>When a bid or booking request is confirmed, your active trips will show real-time progress here.</p>
+                </div>
+              )}
+
+              {/* SCREEN 7: RIDES DONE */}
+              {truckOwnerTab === 'rides-done' && (
+                <div className="empty-state-card">
+                  <div className="empty-icon">✅</div>
+                  <h3>No Completed Ride History</h3>
+                  <p>Your past completed freight deliveries and payment records will be archived here.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ===================================== */}
+        {/* GOODS OWNER PORTAL                    */}
+        {/* ===================================== */}
+        {currentUser && currentUser.role === 'goods-owner' && (
+          <div className="portal-layout">
+            {/* PART 4: Goods Owner Sidebar */}
+            <aside className={`sidebar ${isSidebarCollapsed ? 'collapsed' : ''}`}>
+              <div className="sidebar-toggle-bar">
+                <span className="sidebar-title">Goods Owner Menu</span>
+                <button
+                  className="sidebar-toggle-btn"
+                  onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                  title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+                >
+                  {isSidebarCollapsed ? '▶' : '◀'}
+                </button>
+              </div>
+
+              <nav className="sidebar-nav">
+                <button
+                  className={`sidebar-item ${goodsOwnerTab === 'find-trucks' ? 'active' : ''}`}
+                  onClick={() => setGoodsOwnerTab('find-trucks')}
+                  title="Find Trucks"
+                >
+                  <span className="icon">🚚</span>
+                  <span className="label">Find Trucks</span>
+                </button>
+
+                <button
+                  className={`sidebar-item ${goodsOwnerTab === 'post-shipment' ? 'active' : ''}`}
+                  onClick={() => setGoodsOwnerTab('post-shipment')}
+                  title="Post Shipment"
+                >
+                  <span className="icon">➕</span>
+                  <span className="label">Post Shipment</span>
+                </button>
+
+                <button
+                  className={`sidebar-item ${goodsOwnerTab === 'my-shipments' ? 'active' : ''}`}
+                  onClick={() => setGoodsOwnerTab('my-shipments')}
+                  title="My Shipments"
+                >
+                  <span className="icon">📦</span>
+                  <span className="label">My Shipments ({loads.length})</span>
+                </button>
+
+                <button
+                  className={`sidebar-item ${goodsOwnerTab === 'requests-sent' ? 'active' : ''}`}
+                  onClick={() => setGoodsOwnerTab('requests-sent')}
+                  title="Requests Sent"
+                >
+                  <span className="icon">📤</span>
+                  <span className="label">Requests Sent ({requestsSentList.length})</span>
+                </button>
+
+                <button
+                  className={`sidebar-item ${goodsOwnerTab === 'bids-received' ? 'active' : ''}`}
+                  onClick={() => setGoodsOwnerTab('bids-received')}
+                  title="Bids Received"
+                >
+                  <span className="icon">📥</span>
+                  <span className="label">Bids Received</span>
+                </button>
+
+                <button
+                  className={`sidebar-item ${goodsOwnerTab === 'active-rides' ? 'active' : ''}`}
+                  onClick={() => setGoodsOwnerTab('active-rides')}
+                  title="Active Rides"
+                >
+                  <span className="icon">🛣️</span>
+                  <span className="label">Active Rides</span>
+                </button>
+
+                <button
+                  className={`sidebar-item ${goodsOwnerTab === 'ride-history' ? 'active' : ''}`}
+                  onClick={() => setGoodsOwnerTab('ride-history')}
+                  title="Ride History"
+                >
+                  <span className="icon">📜</span>
+                  <span className="label">Ride History</span>
+                </button>
+              </nav>
+            </aside>
+
+            {/* Portal Canvas */}
+            <div className="portal-canvas">
+              <div className="dashboard-header">
+                <div>
+                  <h1 className="dash-title">
+                    {goodsOwnerTab === 'find-trucks' && 'Find Available Trucks'}
+                    {goodsOwnerTab === 'post-shipment' && 'Post Transport Requirement'}
+                    {goodsOwnerTab === 'my-shipments' && 'My Posted Cargo Shipments'}
+                    {goodsOwnerTab === 'requests-sent' && 'Booking Requests Sent'}
+                    {goodsOwnerTab === 'bids-received' && 'Bids Received'}
+                    {goodsOwnerTab === 'active-rides' && 'Active Shipments In Transit'}
+                    {goodsOwnerTab === 'ride-history' && 'Shipment Ride History'}
+                  </h1>
+                  <p className="dash-sub">
+                    {goodsOwnerTab === 'find-trucks' && 'Search available trucks across routes and request bookings.'}
+                    {goodsOwnerTab === 'post-shipment' && 'Fill cargo details to receive bids from verified carriers.'}
+                    {goodsOwnerTab === 'my-shipments' && 'Manage your posted freight requirements.'}
+                    {goodsOwnerTab === 'requests-sent' && 'Booking requests submitted to truck operators.'}
+                    {goodsOwnerTab === 'bids-received' && 'Carrier bid offers submitted for your shipments.'}
+                    {goodsOwnerTab === 'active-rides' && 'In-transit freight currently moving.'}
+                    {goodsOwnerTab === 'ride-history' && 'Past completed cargo shipments.'}
+                  </p>
+                </div>
+                <span className="role-pill navy">📦 Goods Owner Mode</span>
+              </div>
+
+              {/* Summary Stats Header */}
+              <div className="stats-grid">
+                <div className="stat-card">
+                  <span className="stat-icon">📦</span>
+                  <div>
+                    <div className="stat-value">{loads.length}</div>
+                    <div className="stat-label">Posted Cargo Requirements</div>
+                  </div>
+                </div>
+
+                <div className="stat-card">
+                  <span className="stat-icon">🚛</span>
+                  <div>
+                    <div className="stat-value">{trucks.length}</div>
+                    <div className="stat-label">Available Trucks Nearby</div>
+                  </div>
+                </div>
+
+                <div className="stat-card">
+                  <span className="stat-icon">📑</span>
+                  <div>
+                    <div className="stat-value">{requestsSentList.length}</div>
+                    <div className="stat-label">Requests Sent</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* SCREEN 1: FIND TRUCKS (DEFAULT) */}
+              {goodsOwnerTab === 'find-trucks' && (
+                <div>
+                  <div className="card filter-card">
+                    <div className="filter-header">
+                      <h3 className="filter-title">Search & Filter Available Trucks</h3>
+                      <span className="filter-count">
+                        Showing {filteredTrucks.length} of {trucks.length} trucks
+                        {hasActiveFilters && (
+                          <button className="clear-btn" onClick={handleClearFilters}>Clear Filters</button>
+                        )}
+                      </span>
+                    </div>
+
+                    <div className="filter-row">
+                      <input
+                        type="text"
+                        placeholder="Filter Current Location (e.g. Mumbai)"
+                        value={searchPickup}
+                        onChange={(e) => setSearchPickup(e.target.value)}
+                      />
+                      <input
+                        type="text"
+                        placeholder="Filter Destination"
+                        value={searchDestination}
+                        onChange={(e) => setSearchDestination(e.target.value)}
+                      />
+                      <select
+                        value={filterVehicle}
+                        onChange={(e) => setFilterVehicle(e.target.value)}
+                      >
+                        <option value="All">All Vehicle Types</option>
+                        <option value="14ft Eicher">14ft Eicher</option>
+                        <option value="32ft Container">32ft Container</option>
+                        <option value="10-Wheeler Open Heavy">10-Wheeler Open</option>
+                        <option value="Tata Ace">Tata Ace</option>
+                        <option value="Trailer Multi-Axle">Trailer Multi-Axle</option>
+                        <option value="20ft Container">20ft Container</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="items-list">
+                    {filteredTrucks.length === 0 ? (
+                      <div className="empty-state-card">
+                        <div className="empty-icon">🔍</div>
+                        <h3>No Matching Trucks Found</h3>
+                        <p>No available trucks match your location, destination, or vehicle type filters.</p>
+                        {hasActiveFilters && (
+                          <button className="btn btn-outline" onClick={handleClearFilters}>Clear Filters</button>
+                        )}
+                      </div>
+                    ) : (
+                      filteredTrucks.map((truck) => (
+                        <div className="card item-card" key={truck.id}>
+                          <div className="item-header">
+                            <div>
+                              <span className="item-id">{truck.regNumber}</span>
+                              <h4 className="item-title">{truck.operator}</h4>
+                              <span className="shipper-name">Rating: ★ {truck.rating} • Verified Carrier</span>
+                            </div>
+                            <div className="item-price">₹{truck.rate.toLocaleString('en-IN')}</div>
+                          </div>
+
+                          <div className="item-details">
+                            <div className="detail-chip">
+                              <span className="chip-label">Current Route</span>
+                              <strong>{truck.location} ➔ {truck.destination}</strong>
+                            </div>
+                            <div className="detail-chip">
+                              <span className="chip-label">Vehicle Spec</span>
+                              <span>{truck.vehicleType}</span>
+                            </div>
+                            <div className="detail-chip">
+                              <span className="chip-label">Payload Capacity</span>
+                              <span>{truck.capacity}</span>
+                            </div>
+                          </div>
+
+                          <div className="item-footer">
+                            <span className={`status-tag ${truck.status === 'Available' ? 'green' : 'orange'}`}>
+                              ● {truck.status}
+                            </span>
+                            <button
+                              className="btn btn-sm btn-secondary"
+                              onClick={() => handleOpenBookingModal(truck)}
+                              disabled={truck.status !== 'Available'}
+                            >
+                              {truck.status === 'Available' ? 'Book Truck Now' : 'Request Sent'}
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* SCREEN 2: POST SHIPMENT (SEPARATE FORM SCREEN) */}
+              {goodsOwnerTab === 'post-shipment' && (
+                <div style={{ maxWidth: '640px', margin: '0 auto' }}>
+                  <div className="card form-card">
+                    <h2 className="card-title">Post Transport Requirement</h2>
+                    <form onSubmit={handlePostLoad}>
+                      <div className="form-group">
+                        <label>Cargo Description / Material *</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Pharmaceutical Boxes / Cotton Bales"
+                          value={loadForm.title}
+                          onChange={(e) => setLoadForm({ ...loadForm, title: e.target.value })}
+                          required
+                        />
+                      </div>
+
+                      <div className="form-row">
+                        <div className="form-group">
+                          <label>Pickup City *</label>
+                          <select
+                            value={loadForm.pickup}
+                            onChange={(e) => setLoadForm({ ...loadForm, pickup: e.target.value })}
+                          >
+                            <option value="Mumbai">Mumbai</option>
+                            <option value="Pune">Pune</option>
+                            <option value="Nashik">Nashik</option>
+                            <option value="Nagpur">Nagpur</option>
+                            <option value="Thane">Thane</option>
+                            <option value="Kolhapur">Kolhapur</option>
+                          </select>
+                        </div>
+
+                        <div className="form-group">
+                          <label>Destination City *</label>
+                          <select
+                            value={loadForm.destination}
+                            onChange={(e) => setLoadForm({ ...loadForm, destination: e.target.value })}
+                          >
+                            <option value="Pune">Pune</option>
+                            <option value="Nagpur">Nagpur</option>
+                            <option value="Mumbai">Mumbai</option>
+                            <option value="Nashik">Nashik</option>
+                            <option value="Thane">Thane</option>
+                            <option value="Kolhapur">Kolhapur</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="form-group">
+                        <label>Preferred Vehicle Type *</label>
+                        <select
+                          value={loadForm.vehicleType}
+                          onChange={(e) => setLoadForm({ ...loadForm, vehicleType: e.target.value })}
+                        >
+                          <option value="14ft Eicher">14ft Eicher (Medium Container)</option>
+                          <option value="32ft Container">32ft Multi-Axle Container</option>
+                          <option value="10-Wheeler Open Heavy">10-Wheeler Open Body</option>
+                          <option value="Tata Ace">Tata Ace (Small LCV)</option>
+                          <option value="Trailer Multi-Axle">Trailer Heavy Multi-Axle</option>
+                          <option value="20ft Container">20ft Container</option>
+                        </select>
+                      </div>
+
+                      <div className="form-row">
+                        <div className="form-group">
+                          <label>Cargo Weight (Tons) *</label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            placeholder="e.g. 8"
+                            value={loadForm.weight}
+                            onChange={(e) => setLoadForm({ ...loadForm, weight: e.target.value })}
+                            required
+                          />
+                        </div>
+
+                        <div className="form-group">
+                          <label>Offered Rate (₹) *</label>
+                          <input
+                            type="number"
+                            placeholder="e.g. 18000"
+                            value={loadForm.price}
+                            onChange={(e) => setLoadForm({ ...loadForm, price: e.target.value })}
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="btn btn-secondary full-width"
+                        disabled={isSubmittingLoad}
+                        style={{ marginTop: '12px' }}
+                      >
+                        {isSubmittingLoad ? 'Posting...' : '+ Post Cargo Requirement'}
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              )}
+
+              {/* SCREEN 3: MY SHIPMENTS (SEPARATED FROM FORM) */}
+              {goodsOwnerTab === 'my-shipments' && (
+                <div>
+                  <div className="section-top-bar">
+                    <h2>Posted Requirements ({loads.length})</h2>
+                    <button className="btn btn-secondary" onClick={() => setGoodsOwnerTab('post-shipment')}>
+                      + Post New Cargo
+                    </button>
+                  </div>
+
+                  <div className="items-list">
+                    {loads.map((load) => (
                       <div className="card item-card" key={load.id}>
                         <div className="item-header">
                           <div>
@@ -710,12 +1594,7 @@ function App() {
                             <h4 className="item-title">{load.title}</h4>
                             <span className="shipper-name">Shipper: {load.shipper}</span>
                           </div>
-                          <div style={{ textAlign: 'right' }}>
-                            <div className="item-price">₹{load.price.toLocaleString('en-IN')}</div>
-                            {load.myBid && (
-                              <span className="bid-badge">Your Bid: ₹{load.myBid.toLocaleString('en-IN')}</span>
-                            )}
-                          </div>
+                          <div className="item-price">₹{load.price.toLocaleString('en-IN')}</div>
                         </div>
 
                         <div className="item-details">
@@ -734,252 +1613,86 @@ function App() {
                         </div>
 
                         <div className="item-footer">
-                          <span className={`status-tag ${load.status === 'Open' ? 'green' : 'blue'}`}>
-                            ● {load.status}
-                          </span>
-                          <button
-                            className="btn btn-sm btn-primary"
-                            onClick={() => handleOpenBidModal(load)}
-                            disabled={load.status !== 'Open'}
-                          >
-                            {load.status === 'Open' ? 'Accept & Bid Load' : 'Bid Submitted'}
-                          </button>
+                          <span className="status-tag green">● {load.status}</span>
                         </div>
                       </div>
-                    ))
-                  )}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            </div>
-          </div>
-        )}
+              )}
 
-        {/* ===================================== */}
-        {/* VIEW 3: GOODS OWNER DASHBOARD         */}
-        {/* ===================================== */}
-        {currentView === 'goods-owner' && (
-          <div className="dashboard-view container">
-            <div className="dashboard-header">
-              <div>
-                <h1 className="dash-title">Goods Owner Portal</h1>
-                <p className="dash-sub">Post cargo requirements, find available trucks, and request bookings.</p>
-              </div>
-              <span className="role-pill navy">📦 Goods Owner Mode</span>
-            </div>
-
-            {/* Summary Cards */}
-            <div className="stats-grid">
-              <div className="stat-card">
-                <span className="stat-icon">📦</span>
+              {/* SCREEN 4: REQUESTS SENT */}
+              {goodsOwnerTab === 'requests-sent' && (
                 <div>
-                  <div className="stat-value">{loads.length}</div>
-                  <div className="stat-label">Posted Cargo Requirements</div>
-                </div>
-              </div>
-
-              <div className="stat-card">
-                <span className="stat-icon">🚛</span>
-                <div>
-                  <div className="stat-value">{trucks.length}</div>
-                  <div className="stat-label">Available Trucks Nearby</div>
-                </div>
-              </div>
-
-              <div className="stat-card">
-                <span className="stat-icon">📑</span>
-                <div>
-                  <div className="stat-value">{goodsOwnerBookings}</div>
-                  <div className="stat-label">Bookings Requested</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Form & Main Content Grid */}
-            <div className="dashboard-grid">
-              {/* Left Column: Form to Post Goods Requirement */}
-              <div className="card form-card">
-                <h2 className="card-title">Post Transport Requirement</h2>
-                <form onSubmit={handlePostLoad}>
-                  <div className="form-group">
-                    <label>Cargo Description / Material *</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Pharmaceutical Boxes / Cotton Bales"
-                      value={loadForm.title}
-                      onChange={(e) => setLoadForm({ ...loadForm, title: e.target.value })}
-                      required
-                    />
-                  </div>
-
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>Pickup City *</label>
-                      <select
-                        value={loadForm.pickup}
-                        onChange={(e) => setLoadForm({ ...loadForm, pickup: e.target.value })}
-                      >
-                        <option value="Mumbai">Mumbai</option>
-                        <option value="Pune">Pune</option>
-                        <option value="Nashik">Nashik</option>
-                        <option value="Nagpur">Nagpur</option>
-                        <option value="Thane">Thane</option>
-                        <option value="Kolhapur">Kolhapur</option>
-                      </select>
-                    </div>
-
-                    <div className="form-group">
-                      <label>Destination City *</label>
-                      <select
-                        value={loadForm.destination}
-                        onChange={(e) => setLoadForm({ ...loadForm, destination: e.target.value })}
-                      >
-                        <option value="Pune">Pune</option>
-                        <option value="Nagpur">Nagpur</option>
-                        <option value="Mumbai">Mumbai</option>
-                        <option value="Nashik">Nashik</option>
-                        <option value="Thane">Thane</option>
-                        <option value="Kolhapur">Kolhapur</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="form-group">
-                    <label>Preferred Vehicle Type *</label>
-                    <select
-                      value={loadForm.vehicleType}
-                      onChange={(e) => setLoadForm({ ...loadForm, vehicleType: e.target.value })}
-                    >
-                      <option value="14ft Eicher">14ft Eicher (Medium Container)</option>
-                      <option value="32ft Container">32ft Multi-Axle Container</option>
-                      <option value="10-Wheeler Open Heavy">10-Wheeler Open Body</option>
-                      <option value="Tata Ace">Tata Ace (Small LCV)</option>
-                      <option value="Trailer Multi-Axle">Trailer Heavy Multi-Axle</option>
-                      <option value="20ft Container">20ft Container</option>
-                    </select>
-                  </div>
-
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>Weight (Tons) *</label>
-                      <input
-                        type="number"
-                        step="0.5"
-                        placeholder="e.g. 8"
-                        value={loadForm.weight}
-                        onChange={(e) => setLoadForm({ ...loadForm, weight: e.target.value })}
-                        required
-                      />
-                    </div>
-
-                    <div className="form-group">
-                      <label>Offered Rate (₹) *</label>
-                      <input
-                        type="number"
-                        placeholder="e.g. 18000"
-                        value={loadForm.price}
-                        onChange={(e) => setLoadForm({ ...loadForm, price: e.target.value })}
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <button type="submit" className="btn btn-secondary full-width">
-                    + Post Cargo Requirement
-                  </button>
-                </form>
-              </div>
-
-              {/* Right Column: Search & Available Trucks List */}
-              <div className="list-container">
-                <div className="card filter-card">
-                  <div className="filter-header">
-                    <h3 className="filter-title">Find Available Trucks</h3>
-                    <span className="filter-count">
-                      Showing {filteredTrucks.length} of {trucks.length} trucks
-                      {hasActiveFilters && (
-                        <button className="clear-btn" onClick={handleClearFilters}>Clear Filters</button>
-                      )}
-                    </span>
-                  </div>
-
-                  <div className="filter-row">
-                    <input
-                      type="text"
-                      placeholder="Filter Current Location (e.g. Mumbai)"
-                      value={searchPickup}
-                      onChange={(e) => setSearchPickup(e.target.value)}
-                    />
-                    <input
-                      type="text"
-                      placeholder="Filter Destination"
-                      value={searchDestination}
-                      onChange={(e) => setSearchDestination(e.target.value)}
-                    />
-                    <select
-                      value={filterVehicle}
-                      onChange={(e) => setFilterVehicle(e.target.value)}
-                    >
-                      <option value="All">All Vehicle Types</option>
-                      <option value="14ft Eicher">14ft Eicher</option>
-                      <option value="32ft Container">32ft Container</option>
-                      <option value="10-Wheeler Open Heavy">10-Wheeler Open</option>
-                      <option value="Tata Ace">Tata Ace</option>
-                      <option value="Trailer Multi-Axle">Trailer Multi-Axle</option>
-                      <option value="20ft Container">20ft Container</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Available Trucks List */}
-                <div className="items-list">
-                  {filteredTrucks.length === 0 ? (
-                    <div className="empty-state">
-                      No trucks match your current filter criteria. Try clearing search filters.
+                  {requestsSentList.length === 0 ? (
+                    <div className="empty-state-card">
+                      <div className="empty-icon">📤</div>
+                      <h3>No Booking Requests Sent</h3>
+                      <p>You have not submitted booking requests for any trucks yet. Browse Find Trucks to book an operator.</p>
+                      <button className="btn btn-secondary" onClick={() => setGoodsOwnerTab('find-trucks')}>
+                        Browse Find Trucks
+                      </button>
                     </div>
                   ) : (
-                    filteredTrucks.map((truck) => (
-                      <div className="card item-card" key={truck.id}>
-                        <div className="item-header">
-                          <div>
-                            <span className="item-id">{truck.regNumber}</span>
-                            <h4 className="item-title">{truck.operator}</h4>
-                            <span className="shipper-name">Rating: ★ {truck.rating} • Verified Carrier</span>
+                    <div className="items-list">
+                      {requestsSentList.map((truck) => (
+                        <div className="card item-card" key={truck.id}>
+                          <div className="item-header">
+                            <div>
+                              <span className="item-id">{truck.regNumber}</span>
+                              <h4 className="item-title">{truck.operator}</h4>
+                              <span className="shipper-name">Rating: ★ {truck.rating}</span>
+                            </div>
+                            <div className="item-price">₹{truck.rate.toLocaleString('en-IN')}</div>
                           </div>
-                          <div className="item-price">₹{truck.rate.toLocaleString('en-IN')}</div>
-                        </div>
 
-                        <div className="item-details">
-                          <div className="detail-chip">
-                            <span className="chip-label">Current Route</span>
-                            <strong>{truck.location} ➔ {truck.destination}</strong>
+                          <div className="item-details">
+                            <div className="detail-chip">
+                              <span className="chip-label">Route</span>
+                              <strong>{truck.location} ➔ {truck.destination}</strong>
+                            </div>
+                            <div className="detail-chip">
+                              <span className="chip-label">Spec</span>
+                              <span>{truck.vehicleType}</span>
+                            </div>
                           </div>
-                          <div className="detail-chip">
-                            <span className="chip-label">Vehicle Spec</span>
-                            <span>{truck.vehicleType}</span>
-                          </div>
-                          <div className="detail-chip">
-                            <span className="chip-label">Payload Capacity</span>
-                            <span>{truck.capacity}</span>
-                          </div>
-                        </div>
 
-                        <div className="item-footer">
-                          <span className={`status-tag ${truck.status === 'Available' ? 'green' : 'orange'}`}>
-                            ● {truck.status}
-                          </span>
-                          <button
-                            className="btn btn-sm btn-secondary"
-                            onClick={() => handleOpenBookingModal(truck)}
-                            disabled={truck.status !== 'Available'}
-                          >
-                            {truck.status === 'Available' ? 'Book Truck Now' : 'Request Sent'}
-                          </button>
+                          <div className="item-footer">
+                            <span className="status-tag orange">● Booking Request Pending Carrier Response</span>
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      ))}
+                    </div>
                   )}
                 </div>
-              </div>
+              )}
+
+              {/* SCREEN 5: BIDS RECEIVED */}
+              {goodsOwnerTab === 'bids-received' && (
+                <div className="empty-state-card">
+                  <div className="empty-icon">📥</div>
+                  <h3>No Bids Received Yet</h3>
+                  <p>When truck operators bid on your posted shipments, proposed bids will be listed here for review.</p>
+                </div>
+              )}
+
+              {/* SCREEN 6: ACTIVE RIDES */}
+              {goodsOwnerTab === 'active-rides' && (
+                <div className="empty-state-card">
+                  <div className="empty-icon">🛣️</div>
+                  <h3>No Active Shipments In Transit</h3>
+                  <p>Confirmed truck bookings currently transporting cargo will show live progress here.</p>
+                </div>
+              )}
+
+              {/* SCREEN 7: RIDE HISTORY */}
+              {goodsOwnerTab === 'ride-history' && (
+                <div className="empty-state-card">
+                  <div className="empty-icon">📜</div>
+                  <h3>No Completed Shipment History</h3>
+                  <p>Archive of past completed transport jobs and proof of delivery receipts will be kept here.</p>
+                </div>
+              )}
             </div>
           </div>
         )}
